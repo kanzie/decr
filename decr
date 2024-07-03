@@ -1,0 +1,72 @@
+#!/bin/bash
+
+show_help() {
+    echo "Usage: decr.sh [-s string] [-f file] [-h]"
+    echo ""
+    echo "Options:"
+    echo "  -s string   Decrypt and extract from the given string."
+    echo "  -f file     Decrypt and extract from the given file."
+    echo "  -h          Show this help message."
+}
+
+decrypt_and_extract() {
+    local input_text="$1"
+    local output
+
+    # Try regex-based extraction
+    output=$(echo "$input_text" | gpg --decrypt 2>/dev/null | grep -oE "^[a-zA-Z0-9]+\.onion/two_factor_login/[a-zA-Z0-9]+$")
+    
+    # If regex-based extraction fails, try marker-based extraction
+    if [ -z "$output" ]; then
+        output=$(echo "$input_text" | gpg --decrypt 2>/dev/null | sed -n '/----- BEGIN TEXT -----/,/----- END TEXT -----/p' | grep -oE "^[a-zA-Z0-9]+\.onion/two_factor_login/[a-zA-Z0-9]+$")
+    fi
+
+    if [ -z "$output" ]; then
+        echo "[ERROR] No valid URL extracted."
+        return 1
+    else
+        echo "$output"
+        echo "$output" | pbcopy
+        echo "The URL has been copied to the clipboard."
+        return 0
+    fi
+}
+
+
+while getopts "s:f:h" opt; do
+    case ${opt} in
+        s )
+            input="$OPTARG"
+            decrypt_and_extract "$input"
+            ;;
+        f )
+            file="$OPTARG"
+            if [ ! -f "$file" ]; then
+                echo "[ERROR] The file $file does not exist."
+                exit 1
+            fi
+            input=$(cat "$file")
+            decrypt_and_extract "$input"
+            ;;
+        h )
+            show_help
+            ;;
+        \? )
+            show_help
+            exit 1
+            ;;
+    esac
+done
+
+if [ -z "$input" ]; then
+    # No input provided, try clipboard
+    clipboard_content=$(pbpaste)
+    if [[ "$clipboard_content" =~ ^-----BEGIN\ PGP\ MESSAGE-----.*-----END\ PGP\ MESSAGE-----$ ]]; then
+        decrypt_and_extract "$clipboard_content"
+    else
+        echo "[ERROR] No valid input provided via options or clipboard."
+        show_help
+        exit 1
+    fi
+fi
+
